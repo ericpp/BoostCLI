@@ -75,7 +75,7 @@ class PodcastIndexService:
 
         try:
             for destination in data["feed"]["value"]["destinations"]:
-                if destination["type"] not in ["node"]:
+                if destination["type"] not in ["node", "lnaddress"]:
                     continue
                 custom_key = destination.get("customKey")
                 if custom_key is not None:
@@ -89,6 +89,7 @@ class PodcastIndexService:
                         split=int(destination["split"]),
                         fee=bool(destination.get("fee", False)),
                         name=destination.get("name"),
+                        type=destination.get("type", "node"),
                         custom_key=custom_key,
                         custom_value=custom_value,
                     )

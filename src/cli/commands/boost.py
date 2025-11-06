@@ -108,6 +108,7 @@ def boost(ctx, search_term, amount, message, sender_name, send_pubkey, support_a
                 address=APP_PUBKEY,
                 name="BoostCLI",
                 fee=True,
+                type="node",
             )
         )
 

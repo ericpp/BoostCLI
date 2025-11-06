@@ -98,7 +98,7 @@ class FeedService:
             for destination in podcast_value_soup.children:
                 if not isinstance(destination, Tag):
                     continue
-                if destination.get("type", "node") not in ["node"]:
+                if destination.get("type", "node") not in ["node", "lnaddress"]:
                     continue
                 custom_key = destination.get("customkey")
                 if custom_key is not None:
@@ -112,6 +112,7 @@ class FeedService:
                         split=int(destination["split"]),
                         fee=bool(destination.get("fee", False)),
                         name=destination.get("name"),
+                        type=destination.get("type", "node"),
                         custom_key=custom_key,
                         custom_value=custom_value,
                     )

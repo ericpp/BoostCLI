@@ -10,6 +10,7 @@ class PodcastValueDestination:
     address: str
     name: Optional[str] = None
     fee: bool = False
+    type: str = "node"
     custom_key: Optional[int] = None
     custom_value: Optional[bytes] = None
 
@@ -36,6 +37,7 @@ class ValueForValue:
     uuid: Optional[UUID] = None
     receiver_name: Optional[str] = None
     receiver_address: Optional[str] = None
+    receiver_type: Optional[str] = None
     amount_msats_total: Optional[int] = None
     message: Optional[str] = None
     podcast_index_feed_id: Optional[str] = None
@@ -91,6 +93,7 @@ class BoostInvoice:
             invoice.fees.append(
                 ValueForValue(
                     receiver_address=destination.address,
+                    receiver_type=destination.type,
                     amount_msats=amount_msats,
                     boost=True,
                     amount_msats_total=invoice.amount,
@@ -124,6 +127,7 @@ class BoostInvoice:
             invoice.payments.append(
                 ValueForValue(
                     receiver_address=destination.address,
+                    receiver_type=destination.type,
                     amount_msats=amount_msats,
                     boost=True,
                     amount_msats_total=invoice.amount,
