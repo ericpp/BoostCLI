@@ -4,13 +4,14 @@ import itertools
 import json
 import secrets
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Generator, Optional
 import os
 
 from src.models import BoostInvoice, ValueForValue
 from src.providers.lightning_provider import LightningProvider, channel_from
+from src.providers.lightning_address_provider import LightningAddressProvider
 from src.lnd import lightning_pb2 as ln
 
 
@@ -49,6 +50,9 @@ def client_from(
 class LightningService:
 
     provider: LightningProvider
+    lightning_address_provider: LightningAddressProvider = field(
+        default_factory=LightningAddressProvider
+    )
 
     @classmethod
     def from_client(cls, provider: LightningProvider) -> "LightningService":
@@ -270,34 +274,94 @@ class LightningService:
             return value
 
         for destination in itertools.chain(invoice.payments, invoice.fees):
-            secret = secrets.token_bytes(32)
-            hashed_secret = hashlib.sha256(secret).hexdigest()
-            custom_records = [
-                (5482373484, secret),
-                (7629169, value_to_record(destination)),
-            ]
-            if destination.custom_key and destination.custom_value:
-                custom_records.append(
-                    (destination.custom_key, destination.custom_value)
+            value_record = value_to_record(destination)
+
+            if destination.receiver_type == "lnaddress":
+                response = self._pay_lnaddress(
+                    destination.receiver_address,
+                    destination.amount_msats,
+                    destination.sender_name,
+                    destination.message,
+                    value_record
+                )
+            else:
+                custom_data = []
+                if destination.custom_key and destination.custom_value:
+                    custom_data = [{
+                        "customKey": str(destination.custom_key),
+                        "customValue": destination.custom_value.decode("utf8")
+                    }]
+
+                response = self._pay_keysend(
+                    destination.receiver_address,
+                    destination.amount_msats,
+                    custom_data,
+                    value_record
                 )
 
-            dest = codecs.decode(destination.receiver_address, "hex")
+            if response:
+                yield response
 
-            fee_limit = ln.FeeLimit(fixed_msat=int(destination.amount_msats * 0.10))
-            response = self.provider.lightning_stub.SendPaymentSync(
-                ln.SendRequest(
-                    payment_request=None,
-                    fee_limit=fee_limit,
-                    dest=dest,
-                    amt_msat=destination.amount_msats,
-                    dest_custom_records=custom_records,
-                    payment_hash=bytes.fromhex(hashed_secret),
-                    allow_self_payment=True,
-                )
+    def _pay_lnaddress(self, address: str, amount_msats: int, sender_name: str, message: str, value_record: bytes):
+        keysend_response = self.lightning_address_provider.resolve_keysend(address)
+        if keysend_response:
+            return self._pay_keysend(
+                keysend_response.pubkey,
+                amount_msats,
+                keysend_response.custom_data,
+                value_record
             )
-            if not response:
-                continue
-            yield response
+
+        lnurl_response = self.lightning_address_provider.resolve_lnurlp(
+            address,
+            amount_msats,
+            sender_name,
+            message
+        )
+        if lnurl_response:
+            return self._pay_invoice(lnurl_response.invoice, amount_msats, value_record)
+
+        return None
+
+    def _pay_keysend(self, pubkey: str, amount_msats: int, custom_data: list, value_record: bytes):
+        secret = secrets.token_bytes(32)
+        hashed_secret = hashlib.sha256(secret).hexdigest()
+
+        custom_records = [
+            (5482373484, secret),
+            (7629169, value_record),
+        ]
+
+        for item in custom_data:
+            custom_records.append((int(item["customKey"]), item["customValue"].encode("utf8")))
+
+        dest = codecs.decode(pubkey, "hex")
+        fee_limit = ln.FeeLimit(fixed_msat=int(amount_msats * 0.10))
+
+        return self.provider.lightning_stub.SendPaymentSync(
+            ln.SendRequest(
+                payment_request=None,
+                fee_limit=fee_limit,
+                dest=dest,
+                amt_msat=amount_msats,
+                dest_custom_records=custom_records,
+                payment_hash=bytes.fromhex(hashed_secret),
+                allow_self_payment=True,
+            )
+        )
+
+    def _pay_invoice(self, bolt11_invoice: str, amount_msats: int, value_record: bytes):
+        custom_records = [(7629169, value_record)]
+        fee_limit = ln.FeeLimit(fixed_msat=int(amount_msats * 0.10))
+
+        return self.provider.lightning_stub.SendPaymentSync(
+            ln.SendRequest(
+                payment_request=bolt11_invoice,
+                dest_custom_records=custom_records,
+                fee_limit=fee_limit,
+                allow_self_payment=True,
+            )
+        )
 
 
 def try_to_json_decode(value: str) -> Any:
