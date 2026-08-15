@@ -13,6 +13,7 @@ from src.models import BoostInvoice, ValueForValue
 from src.providers.lightning_provider import LightningProvider, channel_from
 from src.providers.lightning_address_provider import LightningAddressProvider
 from src.lnd import lightning_pb2 as ln
+from src.lnd import router_pb2 as router
 
 
 def read_macaroon(filename):
@@ -336,32 +337,41 @@ class LightningService:
             custom_records.append((int(item["customKey"]), item["customValue"].encode("utf8")))
 
         dest = codecs.decode(pubkey, "hex")
-        fee_limit = ln.FeeLimit(fixed_msat=int(amount_msats * 0.10))
+        fee_limit_msat = int(amount_msats * 0.10)
 
-        return self.provider.lightning_stub.SendPaymentSync(
-            ln.SendRequest(
-                payment_request=None,
-                fee_limit=fee_limit,
-                dest=dest,
-                amt_msat=amount_msats,
-                dest_custom_records=custom_records,
-                payment_hash=bytes.fromhex(hashed_secret),
-                allow_self_payment=True,
-            )
+        request = router.SendPaymentRequest(
+            dest=dest,
+            amt_msat=amount_msats,
+            dest_custom_records=dict(custom_records),
+            payment_hash=bytes.fromhex(hashed_secret),
+            fee_limit_msat=fee_limit_msat,
+            timeout_seconds=60,
+            allow_self_payment=True,
+            no_inflight_updates=True,
         )
+
+        return self._send_payment_v2(request)
 
     def _pay_invoice(self, bolt11_invoice: str, amount_msats: int, value_record: bytes):
         custom_records = [(7629169, value_record)]
-        fee_limit = ln.FeeLimit(fixed_msat=int(amount_msats * 0.10))
+        fee_limit_msat = int(amount_msats * 0.10)
 
-        return self.provider.lightning_stub.SendPaymentSync(
-            ln.SendRequest(
-                payment_request=bolt11_invoice,
-                dest_custom_records=custom_records,
-                fee_limit=fee_limit,
-                allow_self_payment=True,
-            )
+        request = router.SendPaymentRequest(
+            payment_request=bolt11_invoice,
+            dest_custom_records=dict(custom_records),
+            fee_limit_msat=fee_limit_msat,
+            timeout_seconds=60,
+            allow_self_payment=True,
+            no_inflight_updates=True,
         )
+
+        return self._send_payment_v2(request)
+
+    def _send_payment_v2(self, request: "router.SendPaymentRequest"):
+        final = None
+        for update in self.provider.router_stub.SendPaymentV2(request):
+            final = update
+        return final
 
 
 def try_to_json_decode(value: str) -> Any:

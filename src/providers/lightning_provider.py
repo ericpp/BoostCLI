@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import grpc
 
 from src.lnd import lightning_pb2_grpc as lnrpc
+from src.lnd import router_pb2_grpc as routerrpc
 
 
 def channel_from(host: str, port: str, cert: bytes, macaroon: bytes) -> grpc.Channel:
@@ -28,9 +29,11 @@ def channel_from(host: str, port: str, cert: bytes, macaroon: bytes) -> grpc.Cha
 @dataclass(frozen=True)
 class LightningProvider:
     lightning_stub: lnrpc.LightningStub
+    router_stub: routerrpc.RouterStub
 
     @classmethod
     def from_channel(cls, channel: grpc.Channel) -> "LightningProvider":
         return LightningProvider(
             lightning_stub=lnrpc.LightningStub(channel),
+            router_stub=routerrpc.RouterStub(channel),
         )

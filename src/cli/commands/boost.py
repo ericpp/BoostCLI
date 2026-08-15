@@ -18,6 +18,7 @@ from src.models import (
 from src.services.feed_service import FeedService
 from src.services.lightning_service import LightningService
 from src.services.podcast_index_service import PodcastIndexService, SearchType
+from src.lnd import lightning_pb2 as ln
 
 
 APP_PUBKEY = "03d55f4d4c870577e98ac56605a54c5ed20c8897e41197a068fd61bdb580efaa67"
@@ -263,14 +264,21 @@ def boost(ctx, search_term, amount, message, sender_name, send_pubkey, support_a
 
             progress.refresh()
 
-            hash = payment.payment_hash.hex()
-            short_hash = shorten(hash)
-            fee = format_msats(payment.payment_route.total_fees_msat)
-            total = format_msats(payment.payment_route.total_amt_msat)
-            hops = len(payment.payment_route.hops)
+            short_hash = shorten(payment.payment_hash)
 
-            if payment.payment_error:
-                status = f" :x: [bold yellow]{dest.name}[/bold yellow] {short_hash} [bold red]{payment.payment_error}[/bold red]"
+            successful_htlc = next(
+                (htlc for htlc in payment.htlcs if htlc.status == 1),
+                payment.htlcs[-1] if payment.htlcs else None,
+            )
+            route = successful_htlc.route if successful_htlc else None
+
+            fee = format_msats(route.total_fees_msat if route else payment.fee_msat)
+            total = format_msats(route.total_amt_msat if route else payment.value_msat)
+            hops = len(route.hops) if route else 0
+
+            if payment.status != 2:
+                reason = ln.PaymentFailureReason.Name(payment.failure_reason)
+                status = f" :x: [bold yellow]{dest.name}[/bold yellow] {short_hash} [bold red]{reason}[/bold red]"
             else:
                 status = f" :white_check_mark: [bold yellow]{dest.name}[/bold yellow] {short_hash} fee={fee} total={total} hops={hops}"
 
